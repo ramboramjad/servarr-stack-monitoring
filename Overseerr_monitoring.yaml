@@ -1,0 +1,139 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    - uuid: 7c08698c24a24fdeb4d7d9e84b835b74
+      template: 'overseerr monitoring'
+      name: 'overseerr monitoring'
+      groups:
+        - name: Templates
+        - name: Templates/Applications
+      items:
+        - uuid: b903c07464a54117adefc97f48c1094e
+          name: 'Amount of open issues in Overseerr'
+          type: HTTP_AGENT
+          key: 'overseerr.issues["open"]'
+          delay: 15m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.open
+          url: '{$OVERSEERR_URL}/api/v1/issue/count'
+          headers:
+            - name: X-Api-Key
+              value: '{$OVERSEERR_API_KEY}'
+          triggers:
+            - uuid: 20eb4504f45c434692577959af71f0c7
+              expression: 'last(/overseerr monitoring/overseerr.issues["open"],#1)>={$HIGH_WARN_ISSUES}'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/overseerr monitoring/overseerr.issues["open"],#1)<{$HIGH_WARN_ISSUES}'
+              name: 'There are {$HIGH_WARN_ISSUES} open issues in Overseerr'
+              priority: HIGH
+              manual_close: 'YES'
+            - uuid: 9a52ec61dbbb4d58a23544d1fb6aaf08
+              expression: 'last(/overseerr monitoring/overseerr.issues["open"],#1)>= {$LOW_WARN_ISSUES}'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/overseerr monitoring/overseerr.issues["open"],#1)<" {$LOW_WARN_ISSUES}"'
+              name: 'There are {$LOW_WARN_ISSUES} open issues in Overseerr'
+              priority: WARNING
+              manual_close: 'YES'
+        - uuid: c6566d809605486d8e51786edfa0cf35
+          name: 'Amount of requests in Overseerr'
+          type: HTTP_AGENT
+          key: 'overseerr.requests["open"]'
+          delay: 15m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.pending
+          url: '{$OVERSEERR_URL}/api/v1/request/count'
+          headers:
+            - name: X-Api-Key
+              value: '{$OVERSEERR_API_KEY}'
+          triggers:
+            - uuid: b91d1724318f46c4b1dd48f78ba4aaa4
+              expression: 'last(/overseerr monitoring/overseerr.requests["open"],#1)>0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/overseerr monitoring/overseerr.requests["open"],#1)=0'
+              name: 'There are requests pending in Overseerr'
+              priority: WARNING
+              manual_close: 'YES'
+        - uuid: 273d907b768a494b80908a92966a329c
+          name: 'Overseerr Status'
+          type: HTTP_AGENT
+          key: overseerr.status
+          trends: '0'
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'HTTP.* (200)'
+                - '200'
+          url: '{$OVERSEERR_URL}/api/v1/status'
+          headers:
+            - name: X-Api-Key
+              value: '{$OVERSEERR_API_KEY}'
+          retrieve_mode: HEADERS
+          triggers:
+            - uuid: ae5591737c63491b82da5f1e95617be1
+              expression: 'nodata(/overseerr monitoring/overseerr.status,2m)=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/overseerr monitoring/overseerr.status,#1)=200'
+              name: 'Overseer is unavailable'
+              priority: DISASTER
+              manual_close: 'YES'
+        - uuid: 18fd09a4fc3d4b4a8b0afff05afca463
+          name: 'Overseer update available'
+          type: HTTP_AGENT
+          key: 'overseerr.status["updateAvailable"]'
+          delay: 60m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.updateAvailable
+            - type: BOOL_TO_DECIMAL
+              parameters:
+                - ''
+          url: '{$OVERSEERR_URL}/api/v1/status'
+          headers:
+            - name: X-Api-Key
+              value: '{$OVERSEERR_API_KEY}'
+          triggers:
+            - uuid: b95706e7507348bdbe8695584fd66f84
+              expression: 'last(/overseerr monitoring/overseerr.status["updateAvailable"],#1)=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/overseerr monitoring/overseerr.status["updateAvailable"],#1)<1'
+              name: 'Overseerr has an update available'
+              priority: WARNING
+              manual_close: 'YES'
+        - uuid: 222c0c13dcc24fe886b1c89d44ae9dcb
+          name: 'Overseer version'
+          type: HTTP_AGENT
+          key: 'overseerr.status["version"]'
+          delay: 60m
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.version
+          url: '{$OVERSEERR_URL}/api/v1/status'
+          headers:
+            - name: X-Api-Key
+              value: '{$OVERSEERR_API_KEY}'
+      macros:
+        - macro: '{$HIGH_WARN_ISSUES}'
+          value: '10'
+          description: 'the amount of open issues in overseer to give high  alerting.'
+        - macro: '{$LOW_WARN_ISSUES}'
+          value: '1'
+          description: 'the amount of open issues in overseer to start alerting.'
+        - macro: '{$OVERSEERR_API_KEY}'
+          type: SECRET_TEXT
+          description: 'Overseerr''s API key'
+        - macro: '{$OVERSEERR_URL}'
+          value: 'https://overseerr.example.com'
+          description: 'the URL for Overseer including the protocol'

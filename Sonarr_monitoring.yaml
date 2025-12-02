@@ -1,0 +1,150 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    - uuid: 0dd88f5361374c22bd1823fb1d2dcde2
+      template: 'sonarr monitoring'
+      name: 'sonarr monitoring'
+      groups:
+        - name: Templates
+        - name: Templates/Applications
+      items:
+        - uuid: 2fde84bdac694202907ed7ee9ca57edc
+          name: 'Amount of Queued in Sonarr'
+          type: HTTP_AGENT
+          key: sonarr.queued
+          delay: 15m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.totalRecords
+          url: '{$SONARR_URL}/api/v3/queue'
+          headers:
+            - name: X-Api-Key
+              value: '{$SONARR_API_KEY}'
+          triggers:
+            - uuid: 279c8809280744aa8b5ec7e774569759
+              expression: 'last(/sonarr monitoring/sonarr.queued,#4)<0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/sonarr monitoring/sonarr.queued,#1)=0'
+              name: 'Sonarr has series in queue for more then 1 hour'
+              priority: WARNING
+              manual_close: 'YES'
+        - uuid: 617dbdf1053f414d8324c25113d8b98d
+          name: 'Amount of Series in Sonarr'
+          type: HTTP_AGENT
+          key: 'sonarr.series[''total'']'
+          delay: 1h
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  const data = JSON.parse(value);   // maak er een object/array van
+                  return Array.isArray(data) ? data.length : 0;
+          url: '{$SONARR_URL}/api/v3/series'
+          headers:
+            - name: X-Api-Key
+              value: '{$SONARR_API_KEY}'
+        - uuid: 4561d37614804681896d11a9bc536d51
+          name: 'Sonarr status'
+          type: HTTP_AGENT
+          key: sonarr.status
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - 'HTTP.* (200)'
+                - '200'
+          url: '{$SONARR_URL}/api/v3/health'
+          headers:
+            - name: X-Api-Key
+              value: '{$SONARR_API_KEY}'
+          retrieve_mode: HEADERS
+          triggers:
+            - uuid: dd17486886da4ab4bfe9b2f21c0dcf45
+              expression: 'nodata(/sonarr monitoring/sonarr.status,2m)=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'nodata(/sonarr monitoring/sonarr.status,2m)=0'
+              name: 'Sonarr is unavailable'
+              priority: HIGH
+              manual_close: 'YES'
+        - uuid: 8887a16c0d7044739b11a945caaf9255
+          name: 'Sonarr update available'
+          type: HTTP_AGENT
+          key: 'sonarr.status[''updateAvailable'']'
+          delay: 1h
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  const data = JSON.parse(value);   // expect an array
+                  
+                  if (!Array.isArray(data) || data.length === 0) {
+                    return false;
+                  }
+                  
+                  // find the item with latest === true
+                  var latestItem = null;
+                  
+                  for (var i = 0; i < data.length; i++) {
+                    if (data[i].latest === true) {
+                      latestItem = data[i];
+                      break;
+                    }
+                  }
+                  
+                  if (!latestItem) {
+                    return false;
+                  }
+                  
+                  // if latest is true, return if installable ia also true
+                  return latestItem.installable === true;
+            - type: BOOL_TO_DECIMAL
+              parameters:
+                - ''
+          url: '{$SONARR_URL}/api/v3/update'
+          headers:
+            - name: X-Api-Key
+              value: '{$SONARR_API_KEY}'
+          triggers:
+            - uuid: 435c8de1d61a4b45bef087369d46b015
+              expression: 'last(/sonarr monitoring/sonarr.status[''updateAvailable''],#1)=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/sonarr monitoring/sonarr.status[''updateAvailable''],#1)=0'
+              name: 'Sonarr has an update available'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 9119a965e2dc4c19b3ecd2fce47e098f
+          name: 'Amount of Wanted in Sonarr'
+          type: HTTP_AGENT
+          key: 'sonarr.wanted[''missing'']'
+          delay: 15m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.totalRecords
+          url: '{$SONARR_URL}/api/v3/wanted/missing'
+          headers:
+            - name: X-Api-Key
+              value: '{$SONARR_API_KEY}'
+          triggers:
+            - uuid: 009ca38615834d0b96837dd19712958d
+              expression: 'last(/sonarr monitoring/sonarr.wanted[''missing''],#2)>0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/sonarr monitoring/sonarr.wanted[''missing''],#1)=0'
+              name: 'Sonarr has wanted series'
+              priority: WARNING
+              manual_close: 'YES'
+      macros:
+        - macro: '{$SONARR_API_KEY}'
+          type: SECRET_TEXT
+          description: 'API key for Sonarr'
+        - macro: '{$SONARR_URL}'
+          value: 'https://sonarr.example.com'
+          description: 'URL for sonarr'

@@ -1,0 +1,158 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+    - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+      name: Templates/Applications
+  templates:
+    - uuid: 54074dd463ce4495a0f42144954dda93
+      template: 'radarr monitoring'
+      name: 'radarr monitoring'
+      groups:
+        - name: Templates
+        - name: Templates/Applications
+      items:
+        - uuid: 73c390611e89432bb1b67ae679269e80
+          name: 'Amount of movies in Radarr'
+          type: HTTP_AGENT
+          key: 'radarr.movies[''total'']'
+          delay: 1h
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);     // expect an array of movies
+                  
+                  if (!Array.isArray(data)) {
+                    return 0;
+                  }
+                  
+                  var count = 0;
+                  
+                  for (var i = 0; i < data.length; i++) {
+                    if (data[i].hasFile === true) {
+                      count++;
+                    }
+                  }
+                  
+                  return count;
+          url: '{$RADARR_URL}/api/v3/movie'
+          headers:
+            - name: X-Api-Key
+              value: '{$RADARR_API_KEY}'
+        - uuid: 2df479f7c6a94e78937b78bbd21f8f70
+          name: 'Amount of Queued in Radarr'
+          type: HTTP_AGENT
+          key: radarr.queued
+          delay: 15m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.totalRecords
+          url: '{$RADARR_URL}/api/v3/queue'
+          headers:
+            - name: X-Api-Key
+              value: '{$RADARR_API_KEY}'
+          triggers:
+            - uuid: 6eefc86b73c040ea879c6a7f038f0c4a
+              expression: 'last(/radarr monitoring/radarr.queued,#4)<0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/radarr monitoring/radarr.queued,#1)=0'
+              name: 'Radarr has series in queue for more then 1 hour'
+              priority: WARNING
+              manual_close: 'YES'
+        - uuid: 29f2ea0601414766b1d7e7af2fec986d
+          name: 'Radarr status'
+          type: HTTP_AGENT
+          key: radarr.status
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);   // { "status": "OK" }
+                  return data.status === "OK" ? 1 : 0;
+          url: '{$RADARR_URL}/ping'
+          triggers:
+            - uuid: bf513288e61f481094f3d3260680dbe0
+              expression: 'last(/radarr monitoring/radarr.status,#1)=0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/radarr monitoring/radarr.status,#1)=1'
+              name: 'Radarr is unavailable'
+              priority: HIGH
+              manual_close: 'YES'
+        - uuid: 85c82eb420c84b89bfc135993a884c88
+          name: 'Radarr update available'
+          type: HTTP_AGENT
+          key: 'radarr.status[''updateAvailable'']'
+          delay: 1h
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  const data = JSON.parse(value);   // expect an array
+                  
+                  if (!Array.isArray(data) || data.length === 0) {
+                    return false;
+                  }
+                  
+                  // find the item with latest === true
+                  var latestItem = null;
+                  
+                  for (var i = 0; i < data.length; i++) {
+                    if (data[i].latest === true) {
+                      latestItem = data[i];
+                      break;
+                    }
+                  }
+                  
+                  if (!latestItem) {
+                    return false;
+                  }
+                  
+                  // if latest is true, return if installable ia also true
+                  return latestItem.installable === true;
+            - type: BOOL_TO_DECIMAL
+              parameters:
+                - ''
+          url: '{$RADARR_URL}/api/v3/update'
+          headers:
+            - name: X-Api-Key
+              value: '{$RADARR_API_KEY}'
+          triggers:
+            - uuid: f193f9b608cd49cfacaef37b9733460f
+              expression: 'last(/radarr monitoring/radarr.status[''updateAvailable''],#1)=1'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/radarr monitoring/radarr.status[''updateAvailable''],#1)=0'
+              name: 'Radarr has an update available'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 03ee1c76227048a6af2b9cec6ee06276
+          name: 'Amount of Wanted in Radarr'
+          type: HTTP_AGENT
+          key: 'radarr.wanted[''missing'']'
+          delay: 15m
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.totalRecords
+          url: '{$RADARR_URL}/api/v3/wanted/missing'
+          headers:
+            - name: X-Api-Key
+              value: '{$RADARR_API_KEY}'
+          triggers:
+            - uuid: b40c763d24764b02ac4a781918d39336
+              expression: 'last(/radarr monitoring/radarr.wanted[''missing''],#2)>0'
+              recovery_mode: RECOVERY_EXPRESSION
+              recovery_expression: 'last(/radarr monitoring/radarr.wanted[''missing''],#1)=0'
+              name: 'Radarr has wanted Movies'
+              priority: WARNING
+              manual_close: 'YES'
+      macros:
+        - macro: '{$RADARR_API_KEY}'
+          type: SECRET_TEXT
+        - macro: '{$RADARR_URL}'
+          value: 'https://radarr.example.com'
